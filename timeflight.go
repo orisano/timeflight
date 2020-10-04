@@ -27,8 +27,6 @@ type call struct {
 }
 
 type Group struct {
-	CacheDuration time.Duration
-
 	resMu     sync.RWMutex
 	res       interface{}
 	expiresAt time.Time
@@ -38,7 +36,7 @@ type Group struct {
 	callID  int64
 }
 
-func (g *Group) Do(t time.Time, fn func() (interface{}, error)) (interface{}, error) {
+func (g *Group) Do(t time.Time, cacheDuration time.Duration, fn func() (interface{}, error)) (interface{}, error) {
 	g.resMu.RLock()
 	res := g.res
 	expiresAt := g.expiresAt
@@ -55,7 +53,7 @@ func (g *Group) Do(t time.Time, fn func() (interface{}, error)) (interface{}, er
 	if c == nil || t.After(c.expiresAt) {
 		delete(g.calls, g.callID)
 		g.callID++
-		c = &call{ready: make(chan struct{}), expiresAt: t.Add(g.CacheDuration)}
+		c = &call{ready: make(chan struct{}), expiresAt: t.Add(cacheDuration)}
 		g.calls[g.callID] = c
 		g.callsMu.Unlock()
 
