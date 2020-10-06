@@ -31,9 +31,8 @@ type Group struct {
 	res       interface{}
 	expiresAt time.Time
 
-	callsMu sync.Mutex
-	calls   map[int64]*call
-	callID  int64
+	callMu sync.Mutex
+	call   *call
 }
 
 func (g *Group) Do(t time.Time, cacheDuration time.Duration, fn func() (interface{}, error)) (interface{}, error) {
@@ -45,17 +44,12 @@ func (g *Group) Do(t time.Time, cacheDuration time.Duration, fn func() (interfac
 		return res, nil
 	}
 
-	g.callsMu.Lock()
-	if g.calls == nil {
-		g.calls = make(map[int64]*call)
-	}
-	c := g.calls[g.callID]
+	g.callMu.Lock()
+	c := g.call
 	if c == nil || t.After(c.expiresAt) {
-		delete(g.calls, g.callID)
-		g.callID++
 		c = &call{ready: make(chan struct{}), expiresAt: t.Add(cacheDuration)}
-		g.calls[g.callID] = c
-		g.callsMu.Unlock()
+		g.call = c
+		g.callMu.Unlock()
 
 		c.res, c.err = fn()
 		if c.err == nil {
@@ -68,7 +62,7 @@ func (g *Group) Do(t time.Time, cacheDuration time.Duration, fn func() (interfac
 		}
 		close(c.ready)
 	} else {
-		g.callsMu.Unlock()
+		g.callMu.Unlock()
 		<-c.ready
 	}
 	return c.res, c.err
@@ -76,10 +70,9 @@ func (g *Group) Do(t time.Time, cacheDuration time.Duration, fn func() (interfac
 
 func (g *Group) Reset() {
 	g.resMu.Lock()
-	g.callsMu.Lock()
-	g.calls = nil
-	g.callID = 0
+	defer g.resMu.Unlock()
+	g.callMu.Lock()
+	defer g.callMu.Unlock()
+	g.call = nil
 	g.res = nil
-	g.callsMu.Unlock()
-	g.resMu.Unlock()
 }
